@@ -1,0 +1,294 @@
+---
+title: "Parents and College"
+author: "Kieran Healy"
+date: '2022-04-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+First we load the libraries we'll need.
+
+
+```{r, message=FALSE}
+library(tidyverse)
+library(socviz)
+library(kableExtra)
+library(survey) 
+library(srvyr) # Let survey work with tidyverse
+library(broom)
+library(gssr) # https://kjhealy.github.io/gssr
+```
+
+```{r, message=FALSE, echo=FALSE, results='hide'}
+## Fonts for formatting the plots; not required
+## Just comment this chunk out if necessary 
+library(showtext)
+showtext_auto()
+
+library(myriad)
+import_myriad_semi()
+
+theme_set(theme_myriad_semi())
+
+```
+
+# GSS Data
+Next, the data.
+
+```{r}
+## From gssr
+data(gss_all)
+gss_all
+```
+
+## Subset
+
+We select the subset of variables of interest: `age`, `padeg`, `madeg`, and `degree`, together with the survey weights. 
+
+```{r}
+cont_vars <- c("year", "id", "ballot", "age")
+cat_vars <- c("padeg", "madeg", "degree")
+wt_vars <- c("vpsu",
+             "vstrat",
+             "oversamp",
+             "formwt",              # weight to deal with experimental randomization
+             "wtssall",             # main weight variable
+             "sampcode",            # sampling error code
+             "sample")              # sampling frame and method
+my_vars <- c(cont_vars, cat_vars, wt_vars)
+
+## Clean up labeled vars as we go, create compwt
+gss_df <- gss_all %>%
+  filter(year > 1974 & year < 2021) %>% 
+  select(all_of(my_vars)) %>% 
+  mutate(across(everything(), haven::zap_missing), # Convert labeled missing to regular NA
+         across(all_of(wt_vars), as.numeric),
+         across(all_of(cat_vars), as_factor), 
+         across(all_of(cat_vars), fct_relabel, tolower),
+         across(all_of(cat_vars), fct_relabel, tools::toTitleCase),
+         compwt = oversamp * formwt * wtssall)
+        
+```
+
+## Recoding
+
+- Make a "young" variable, ages 18-30 
+- Recode the degree measures into HS or lower, Some college, and BA or higher for the respondent (`resp_coll`), father's education (`pa_coll`), and mother's education (`ma_coll`). 
+- Create a measure `pama` flagging if _neither_ parent has a BA or higher. 
+
+```{r}
+gss_df <- gss_df %>% 
+  mutate(
+    young = case_when(age <= 30 ~ "Aged 18-30", 
+                      age > 30 ~ "Aged 31+", 
+                      TRUE ~ NA_character_),
+    self_coll = fct_collapse(degree,
+      `HS or less` = c("less than High School", 
+                       "High School"), 
+      `Some College` = "Associate/Junior College",
+      `College or more` = c("Bachelor's", "Graduate")),
+    pa_coll = fct_collapse(padeg,
+      `HS or less` = c("less than High School", 
+                       "High School"), 
+      `Some College` = "Associate/Junior College",
+      `College or more` = c("Bachelor's", "Graduate")),
+    ma_coll = fct_collapse(madeg,
+      `HS or less` = c("less than High School", 
+                       "High School"), 
+      `Some College` = "Associate/Junior College",
+      `College or more` = c("Bachelor's", "Graduate")),
+    pama = case_when(
+      pa_coll != "College or more" & ma_coll != "College or more" ~ "First Gen", 
+      pa_coll == "College or more" | ma_coll == "College or more" ~ "College Parent",
+      TRUE ~ NA_character_
+    )
+  )
+
+```
+
+## Unweighted counts
+
+```{r}
+## Let's just pick one year
+
+# father
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(padeg) %>% 
+  kbl() %>%
+  kable_styling(full_width = F)
+```
+
+```{r}
+# father recode
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(pa_coll) %>% 
+  kbl() %>%
+  kable_styling(full_width = F)
+
+```
+
+
+```{r}
+# mother
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(madeg) %>% 
+  kbl() %>%
+  kable_styling(full_width = F)
+
+```
+
+```{r}
+# mother recode
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(ma_coll) %>% 
+  kbl() %>%
+  kable_styling(full_width = F)
+
+```
+
+```{r}
+# respondent
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(degree) %>% 
+  kbl() %>%
+  kable_styling(full_width = F)
+
+```
+
+```{r}
+# respondent recode
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(self_coll) %>% 
+  kbl() %>%
+  kable_styling(full_width = F)
+```
+
+## `pama` variable
+
+Check 1:
+
+```{r}
+## Neither parent has a college degree
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(pa_coll, ma_coll) %>% 
+  filter(pa_coll != "College or more" & ma_coll != "College or more") %>% 
+  summarize(n = sum(n))
+
+## Neither parent has a college degree
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(pama) %>% 
+  filter(pama == "First Gen")
+```
+
+Check 2: 
+
+```{r}
+## At least one parent has a college degree
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(pa_coll, ma_coll) %>% 
+  filter(pa_coll == "College or more" | ma_coll == "College or more") %>% 
+  summarize(n = sum(n))
+
+## At least one parent has a college degree
+gss_df %>% 
+  filter(year == 2010) %>% 
+  count(pama) %>% 
+  filter(pama == "College Parent")
+
+```
+
+## Survey-weighted estimates
+
+```{r}
+options(survey.lonely.psu = "adjust")
+options(na.action="na.pass")
+
+## Before 1975 vpsus are not available
+gss_svy <- gss_df %>%
+  filter(year > 1974) %>%  
+  mutate(stratvar = interaction(year, vstrat)) %>%
+  as_survey_design(id = vpsu,
+                     strata = stratvar,
+                     weights = compwt,
+                     nest = TRUE)
+gss_svy
+```
+
+## Respondents aged 18-30
+
+```{r, fig.width = 7, fig.height = 4}
+
+out <- gss_svy %>%
+  filter(young == "Aged 18-30") %>% 
+  drop_na(pama) %>%  
+  group_by(year, pama) %>%
+  summarize(prop = survey_mean(na.rm = TRUE, 
+                               vartype = "ci")) %>% 
+  filter(pama == "First Gen", year < 2020) %>% 
+  ggplot(mapping = aes(x = year, 
+                       y = prop, 
+                       ymin = prop_low, 
+                       ymax = prop_upp)) + 
+  geom_ribbon(color = NA, 
+              fill = "#0072B2", 
+              alpha = 0.4) + 
+  geom_line(color = "#0072B2", 
+            size = 1.2) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1), 
+                     limits = c(0, 1)) + 
+  labs(title = "Percent of respondents aged 18-30 where neither parent had a college degree ",
+       subtitle = "Amongst respondents providing information about both parents.\nPopulation-weighted estimates and confidence intervals.", 
+       caption = "Data: GSS. Figure: @kjhealy", 
+       x = "Year", y = "Percent")
+
+print(out)
+
+ggsave(filename = "figures/young_pama_nodegree.pdf", out, width = 7, height = 4)
+```
+
+## Respondents with Bachelor's Degrees
+
+```{r, fig.width = 7, fig.height = 4.5}
+out <- gss_svy %>%
+  drop_na(pama) %>% 
+  group_by(year, self_coll, pama) %>%
+  summarize(prop = survey_mean(na.rm = TRUE, 
+                               vartype = "ci")) %>% 
+  filter(self_coll == "College or more", 
+         pama == "First Gen", 
+         year < 2020) %>% 
+  ggplot(mapping = aes(x = year, 
+                       y = prop, 
+                       ymin = prop_low, 
+                       ymax = prop_upp)) + 
+  geom_ribbon(color = NA, 
+              fill = "#0072B2", 
+              alpha = 0.4) + 
+  geom_line(color = "#0072B2", 
+            size = 1.2) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1), 
+                     limits = c(0, 1)) + 
+  labs(title = "Percent of GSS respondents who have a Bachelor's degree,\nand neither of whose parents had a Bachelor's degree",
+       subtitle = "Amongst respondents providing information about both parents.\nPopulation-weighted estimates and confidence intervals.", 
+       caption = "Data: General Social Survey. Figure: @kjhealy", 
+       x = "Year", y = "Percent")
+print(out)
+
+ggsave(filename = "figures/firstgen_ba.pdf", out, width = 7, height = 4.5)
+
+```
+
