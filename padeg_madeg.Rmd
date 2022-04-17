@@ -22,6 +22,20 @@ library(survey)
 library(srvyr) # Let survey work with tidyverse
 library(broom)
 library(gssr) # https://kjhealy.github.io/gssr
+
+## Tidy up agegroup
+convert_agegrp <- function(x){
+    x <- gsub("\\(", "", x)
+    x <- gsub("\\[", "", x)
+    x <- gsub("\\]", "", x)
+    x <- gsub(",", "-", x)
+    x <- gsub("-89", "+", x)
+    regex <- "^(.*$)"
+    x <- gsub(regex, "Age \\1", x)
+    x
+}
+
+
 ```
 
 ```{r, message=FALSE, echo=FALSE, results='hide'}
@@ -82,11 +96,25 @@ gss_df <- gss_all %>%
 - Create a measure `pama` flagging if _neither_ parent has a BA or higher. 
 
 ```{r}
+
+## Age quartiles
+qrts <- quantile(as.numeric(gss_df$age), na.rm = TRUE)
+
+## Age quintiles
+quintiles <- quantile(as.numeric(gss_df$age), 
+                      probs = seq(0, 1, 0.2), na.rm = TRUE)
+
 gss_df <- gss_df %>% 
   mutate(
     young = case_when(age <= 30 ~ "Aged 18-30", 
                       age > 30 ~ "Aged 31+", 
                       TRUE ~ NA_character_),
+    ageq = cut(x = age, breaks = unique(qrts), 
+               include.lowest=TRUE),
+    ageq =  fct_relabel(ageq, convert_agegrp),
+    agequint = cut(x = age, breaks = unique(quintiles), 
+                   include.lowest = TRUE),
+    agequint = fct_relabel(agequint, convert_agegrp),
     self_coll = fct_collapse(degree,
       `HS or less` = c("less than High School", 
                        "High School"), 
@@ -265,11 +293,11 @@ ggsave(filename = "figures/young_pama_nodegree.pdf", out, width = 7, height = 4)
 ```{r, fig.width = 7, fig.height = 4.5}
 out <- gss_svy %>%
   drop_na(pama) %>% 
+  filter(self_coll == "College or more") %>% 
   group_by(year, self_coll, pama) %>%
   summarize(prop = survey_mean(na.rm = TRUE, 
                                vartype = "ci")) %>% 
-  filter(self_coll == "College or more", 
-         pama == "First Gen", 
+  filter(pama == "First Gen", 
          year < 2020) %>% 
   ggplot(mapping = aes(x = year, 
                        y = prop, 
@@ -291,4 +319,91 @@ print(out)
 ggsave(filename = "figures/firstgen_ba.pdf", out, width = 7, height = 4.5)
 
 ```
+
+
+## By age quintiles 
+
+```{r}
+out <- gss_svy %>%
+  drop_na(pama) %>%  
+  group_by(year, agequint, pama) %>%
+  summarize(prop = survey_mean(na.rm = TRUE, 
+                               vartype = "ci")) %>% 
+  filter(pama == "First Gen", year < 2020) %>% 
+  drop_na() %>% 
+  ggplot(mapping = aes(x = year, 
+                       y = prop, 
+                       ymin = prop_low, 
+                       ymax = prop_upp)) + 
+    geom_hline(yintercept = 0.75, linetype = "dotted", 
+             color = "gray40") + 
+  geom_hline(yintercept = 0.5, linetype = "dotted", 
+             color = "gray40") + 
+    geom_hline(yintercept = 0.25, linetype = "dotted", 
+             color = "gray40") + 
+  geom_ribbon(color = NA, 
+              fill = "#0072B2", 
+              alpha = 0.4) + 
+  geom_line(color = "#0072B2", 
+            size = 1.2) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1), 
+                     limits = c(0, 1)) + 
+  facet_wrap(~ agequint, nrow = 1) + 
+  labs(title = "Percent of respondents where neither parent had a college degree ",
+       subtitle = "Amongst respondents providing information about both parents. Population-weighted estimates and confidence intervals.", 
+       caption = "Data: GSS. Figure: @kjhealy", 
+       x = "Year", y = "Percent")
+
+print(out)
+
+ggsave(filename = "figures/firstgen_agequnts.pdf", out, width = 12, height = 5)
+
+
+```
+
+# By age quintiles with Bachelor's degrees
+
+```{r}
+## By age quintiles 
+
+out <- gss_svy %>% 
+  filter(self_coll == "College or more") %>% 
+  drop_na(pama) %>% 
+  group_by(year, agequint, self_coll, pama) %>%
+  summarize(prop = survey_mean(na.rm = TRUE, 
+                               vartype = "ci")) %>% 
+  filter(year > 1979, year < 2020) %>% 
+  filter(self_coll == "College or more",
+         pama == "First Gen") %>% 
+  drop_na() %>% 
+  ggplot(mapping = aes(x = year, 
+                       y = prop, 
+                       ymin = prop_low, 
+                       ymax = prop_upp)) + 
+    geom_hline(yintercept = 0.75, linetype = "dotted", 
+             color = "gray40") + 
+  geom_hline(yintercept = 0.5, linetype = "dotted", 
+             color = "gray40") + 
+    geom_hline(yintercept = 0.25, linetype = "dotted", 
+             color = "gray40") + 
+  geom_ribbon(color = NA, 
+              fill = "#0072B2", 
+              alpha = 0.4) + 
+  geom_line(color = "#0072B2", 
+            size = 1.2) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1), 
+                     limits = c(0, 1)) + 
+  facet_wrap(~ agequint, nrow = 1) + 
+  labs(title = "Percent of college graduates where neither parent had a college degree, by age quintile",
+       subtitle = "Amongst respondents providing information about both parents. Population-weighted estimates and confidence intervals.", 
+       caption = "Data: GSS. Figure: @kjhealy", 
+       x = "Year", y = "Percent")
+
+print(out)
+
+ggsave(filename = "figures/firstgen_agequnts.pdf", out, width = 12, height = 5)
+
+
+```
+
 
