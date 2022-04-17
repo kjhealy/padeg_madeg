@@ -323,7 +323,7 @@ ggsave(filename = "figures/firstgen_ba.pdf", out, width = 7, height = 4.5)
 
 ## By age quintiles 
 
-```{r}
+```{r, fig.width = 12, fig.height = 5}
 out <- gss_svy %>%
   drop_na(pama) %>%  
   group_by(year, agequint, pama) %>%
@@ -363,7 +363,7 @@ ggsave(filename = "figures/firstgen_agequnts.pdf", out, width = 12, height = 5)
 
 # By age quintiles with Bachelor's degrees
 
-```{r}
+```{r, fig.width = 12, fig.height = 4.5}
 ## By age quintiles 
 
 out <- gss_svy %>% 
@@ -401,7 +401,7 @@ out <- gss_svy %>%
 
 print(out)
 
-ggsave(filename = "figures/firstgen_agequnts.pdf", out, width = 12, height = 5)
+ggsave(filename = "figures/firstgen_agequnts.pdf", out, width = 12, height = 4.5)
 
 
 ```
